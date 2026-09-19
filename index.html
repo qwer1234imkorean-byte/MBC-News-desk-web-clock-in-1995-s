@@ -24,6 +24,7 @@
             align-items: center;
             justify-content: center;
             cursor: pointer;
+            font-family: sans-serif;
         }
 
         #clockCanvas {
@@ -31,15 +32,32 @@
             width: 100vw;
             height: 100vh;
         }
+
+        /* 오디오 활성화 안내 팁 */
+        #audioNotice {
+            position: absolute;
+            bottom: 30px;
+            background: rgba(0, 0, 0, 0.7);
+            color: #ffffff;
+            padding: 10px 20px;
+            border-radius: 20px;
+            font-size: 14px;
+            pointer-events: none;
+            transition: opacity 0.5s ease;
+            box-shadow: 0 0 10px rgba(0,0,0,0.5);
+            z-index: 10;
+        }
     </style>
 </head>
 <body>
 
     <canvas id="clockCanvas"></canvas>
+    <div id="audioNotice">🔔 화면 아무 곳이나 클릭(터치)하면 시보음이 활성화됩니다.</div>
 
     <script>
         const canvas = document.getElementById('clockCanvas');
         const ctx = canvas.getContext('2d');
+        const audioNotice = document.getElementById('audioNotice');
 
         // Audio Context setup
         let audioCtx = null;
@@ -69,30 +87,35 @@
                 audioCtx.resume();
             }
             isAudioUnlocked = true;
+
+            // 소리 활성화 안내 문구 숨기기
+            if (audioNotice) {
+                audioNotice.style.opacity = '0';
+                setTimeout(() => { audioNotice.style.display = 'none'; }, 500);
+            }
         }
 
-        // 화면 터치/클릭/키 입력 시 오디오 자동 차단 해제
+        // 화면 클릭/터치/키 입력 시 오디오 자동 해제
         ['click', 'touchstart', 'keydown'].forEach(evt => {
             window.addEventListener(evt, () => {
                 initAudioContext();
             }, { once: false });
         });
 
-        // 음계 주파수 정의 (MBC 시보 멜로디)
+        // 음계 주파수 정의
         const NOTES = {
             C4: 261.63, E4: 329.63, G4: 392.00, A4: 440.00,
             B4: 493.88, C5: 523.25, D5: 587.33, E5: 659.25,
             A5: 880.00
         };
 
-        // Web Audio API로 MBC 시보 멜로디 + 삐- 시보음 전체 합성 재생 (10초 전 실행)
+        // Web Audio API로 MBC 시보 멜로디 + 삐- 시보음 재생 (정각 10초 전 실행)
         function playMbcFullChimeSequence() {
             if (!audioCtx) return;
             if (audioCtx.state === 'suspended') audioCtx.resume();
 
             const startTime = audioCtx.currentTime;
 
-            // 음표 재생 헬퍼
             function playNote(freq, startOffset, duration, type = 'sine', volume = 0.3) {
                 const osc = audioCtx.createOscillator();
                 const gain = audioCtx.createGain();
@@ -244,7 +267,7 @@
             const minAngle = min * 6 * (Math.PI / 180);
             const secAngle = sec * 6 * (Math.PI / 180);
 
-            // 5. Hour Hand (White with inner line and shadow)
+            // 5. Hour Hand
             const hourHandLength = clockRadius * 0.48;
             const hourHandWidth = clockRadius * 0.052;
             const shadowOffset = clockRadius * 0.02;
@@ -281,7 +304,7 @@
 
             ctx.restore();
 
-            // 6. Minute Hand (Classic Blue / White with offset)
+            // 6. Minute Hand
             const minHandLength = clockRadius * 0.72;
             const minHandWidth = clockRadius * 0.036;
 
@@ -309,7 +332,7 @@
 
             ctx.restore();
 
-            // 7. Dual Classic MBC Second Hands (Red hand & Black/Blue trail hand)
+            // 7. Dual Classic MBC Second Hands
             const secHandLength = clockRadius * 0.84;
             const secHandWidth = clockRadius * 0.02;
 
@@ -359,12 +382,10 @@
 
             ctx.restore();
 
-            // Request next frame
             requestAnimationFrame(renderClock);
         }
 
         window.onload = function() {
-            initAudioContext();
             requestAnimationFrame(renderClock);
         };
     </script>
