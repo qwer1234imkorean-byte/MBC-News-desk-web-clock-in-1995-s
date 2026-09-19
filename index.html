@@ -36,20 +36,15 @@
 <body>
 
     <canvas id="clockCanvas"></canvas>
-    
-    <!-- MBC 시보음 MP3 음원 (정각 10초 전 출력) -->
-    <audio id="chimeAudio" preload="auto" src="audio_file_0.mp3"></audio>
 
     <script>
         const canvas = document.getElementById('clockCanvas');
         const ctx = canvas.getContext('2d');
-        const audioElement = document.getElementById('chimeAudio');
 
-        // Audio Context setup for high precision chime synthesis + fallback
+        // Audio Context setup
         let audioCtx = null;
         let isAudioUnlocked = false;
         let lastChimeHour = -1;
-        let ntpOffsetMs = 0; // Offset between client system clock and standard time
 
         // High DPI canvas handling
         let dpr = window.devicePixelRatio || 1;
@@ -59,28 +54,8 @@
         let centerY = 0;
         let clockRadius = 0;
 
-        // Simulated high-precision NTP sync check with fallback
-        async function syncNTPTime() {
-            try {
-                const startTime = performance.now();
-                const response = await fetch('https://worldtimeapi.org/api/ip', { cache: 'no-store' });
-                if (response.ok) {
-                    const data = await response.json();
-                    const serverTime = new Date(data.utc_datetime).getTime();
-                    const latency = (performance.now() - startTime) / 2;
-                    const realNow = serverTime + latency;
-                    ntpOffsetMs = realNow - Date.now();
-                    console.log(`NTP synced (Offset: ${ntpOffsetMs.toFixed(2)}ms)`);
-                }
-            } catch (err) {
-                ntpOffsetMs = 0;
-            }
-        }
-        syncNTPTime();
-        setInterval(syncNTPTime, 300000); // Re-sync every 5 minutes
-
         function getAccurateTime() {
-            return new Date(Date.now() + ntpOffsetMs);
+            return new Date();
         }
 
         function initAudioContext() {
@@ -93,69 +68,70 @@
             if (audioCtx && audioCtx.state === 'suspended') {
                 audioCtx.resume();
             }
-
-            // Unlock audio element
-            if (audioElement) {
-                audioElement.play().then(() => {
-                    audioElement.pause();
-                    audioElement.currentTime = 0;
-                    isAudioUnlocked = true;
-                }).catch(() => {
-                    isAudioUnlocked = true; // Still allow Web Audio API fallback
-                });
-            } else {
-                isAudioUnlocked = true;
-            }
+            isAudioUnlocked = true;
         }
 
-        // Invisible silent user interaction unlock listener
+        // 화면 터치/클릭/키 입력 시 오디오 자동 차단 해제
         ['click', 'touchstart', 'keydown'].forEach(evt => {
             window.addEventListener(evt, () => {
                 initAudioContext();
             }, { once: false });
         });
 
-        // Web Audio API Synthesizer (MP3 파일 재생 실패 시 대체용)
-        function playSynthesizedChimeSequence() {
-            if (!audioCtx) return;
+        // 음계 주파수 정의 (MBC 시보 멜로디)
+        const NOTES = {
+            C4: 261.63, E4: 329.63, G4: 392.00, A4: 440.00,
+            B4: 493.88, C5: 523.25, D5: 587.33, E5: 659.25,
+            A5: 880.00
+        };
 
-            const now = audioCtx.currentTime;
-            
-            // 3 preparation beeps (57s, 58s, 59s -> 440Hz / A4)
-            for (let i = 0; i < 3; i++) {
+        // Web Audio API로 MBC 시보 멜로디 + 삐- 시보음 전체 합성 재생 (10초 전 실행)
+        function playMbcFullChimeSequence() {
+            if (!audioCtx) return;
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+
+            const startTime = audioCtx.currentTime;
+
+            // 음표 재생 헬퍼
+            function playNote(freq, startOffset, duration, type = 'sine', volume = 0.3) {
                 const osc = audioCtx.createOscillator();
                 const gain = audioCtx.createGain();
-                
-                osc.type = 'sine';
-                osc.frequency.setValueAtTime(440, now + i);
-                
-                gain.gain.setValueAtTime(0, now + i);
-                gain.gain.linearRampToValueAtTime(0.6, now + i + 0.02);
-                gain.gain.exponentialRampToValueAtTime(0.0001, now + i + 0.25);
-                
+
+                osc.type = type;
+                osc.frequency.setValueAtTime(freq, startTime + startOffset);
+
+                gain.gain.setValueAtTime(0, startTime + startOffset);
+                gain.gain.linearRampToValueAtTime(volume, startTime + startOffset + 0.03);
+                gain.gain.exponentialRampToValueAtTime(0.0001, startTime + startOffset + duration);
+
                 osc.connect(gain);
                 gain.connect(audioCtx.destination);
-                
-                osc.start(now + i);
-                osc.stop(now + i + 0.3);
+
+                osc.start(startTime + startOffset);
+                osc.stop(startTime + startOffset + duration + 0.05);
             }
 
-            // High Pitch Final Top-of-the-hour chime (00s -> 880Hz / A5)
-            const mainOsc = audioCtx.createOscillator();
-            const mainGain = audioCtx.createGain();
+            // MBC 10초 전 시보 멜로디
+            const melody = [
+                { note: NOTES.C4, start: 0.0, dur: 0.6 },
+                { note: NOTES.E4, start: 0.8, dur: 0.6 },
+                { note: NOTES.G4, start: 1.6, dur: 0.6 },
+                { note: NOTES.C5, start: 2.4, dur: 1.2 },
+                { note: NOTES.G4, start: 4.0, dur: 0.6 },
+                { note: NOTES.E5, start: 4.8, dur: 1.2 }
+            ];
 
-            mainOsc.type = 'sine';
-            mainOsc.frequency.setValueAtTime(880, now + 3);
+            melody.forEach(item => {
+                playNote(item.note, item.start, item.dur, 'triangle', 0.4);
+            });
 
-            mainGain.gain.setValueAtTime(0, now + 3);
-            mainGain.gain.linearRampToValueAtTime(0.8, now + 3 + 0.02);
-            mainGain.gain.exponentialRampToValueAtTime(0.0001, now + 3 + 1.8);
+            // 57초, 58초, 59초 예비음 (440Hz 예비 삐-음)
+            playNote(NOTES.A4, 7.0, 0.3, 'sine', 0.5); // 57초
+            playNote(NOTES.A4, 8.0, 0.3, 'sine', 0.5); // 58초
+            playNote(NOTES.A4, 9.0, 0.3, 'sine', 0.5); // 59초
 
-            mainOsc.connect(mainGain);
-            mainGain.connect(audioCtx.destination);
-
-            mainOsc.start(now + 3);
-            mainOsc.stop(now + 3 + 2.0);
+            // 00초 정각 정시음 (880Hz 높은 삐----음)
+            playNote(NOTES.A5, 10.0, 2.0, 'sine', 0.7); // 00초 정각
         }
 
         function checkAndPlayChime(nowDate) {
@@ -163,20 +139,11 @@
             const currentMinute = nowDate.getMinutes();
             const currentSecond = nowDate.getSeconds();
 
-            // 정각 10초 전 (59분 50초)에 MP3 시보음 재생 트리거
+            // 정각 10초 전 (59분 50초)에 시보 멜로디 + 시보음 실행
             if (currentMinute === 59 && currentSecond === 50) {
                 if (lastChimeHour !== currentHour) {
                     lastChimeHour = currentHour;
-                    
-                    if (audioElement && audioElement.src) {
-                        audioElement.currentTime = 0;
-                        audioElement.play().catch(() => {
-                            // MP3 재생 제한 시 Web Audio API 예비 시보음 실행
-                            playSynthesizedChimeSequence();
-                        });
-                    } else {
-                        playSynthesizedChimeSequence();
-                    }
+                    playMbcFullChimeSequence();
                 }
             }
 
@@ -335,7 +302,7 @@
             ctx.beginPath();
             ctx.moveTo(0, clockRadius * 0.04);
             ctx.lineTo(0, -minHandLength);
-            ctx.strokeStyle = '#2233FF'; // Classic Blue Minute Hand Accent
+            ctx.strokeStyle = '#2233FF';
             ctx.lineWidth = minHandWidth;
             ctx.lineCap = 'square';
             ctx.stroke();
